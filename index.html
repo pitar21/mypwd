@@ -151,6 +151,57 @@ function renderList(){
     ul.appendChild(li);
   });
 }
+<!-- 末尾の<script>内に追記 or 置換（PapaParseは読み込み済み想定） -->
+function norm(t){ return (t||'').toString().replace(/\uFEFF/g,'').normalize('NFC').trim(); }
+
+async function parseCsvText(text){
+  return new Promise(res=>{
+    Papa.parse(text, {header:true, skipEmptyLines:true, complete:r=>res(
+      r.data.map(x=>({ru:norm(x.ru), jp:norm(x.jp)})).filter(x=>x.ru&&x.jp)
+    )});
+  });
+}
+
+/* 1) input=file */
+document.getElementById('csv').addEventListener('change', async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const txt = await f.text();
+  const rows = await parseCsvText(txt);
+  if(rows.length){ data=rows; idx=0; renderList(); show(0); localStorage.setItem('lastCsv', txt); }
+});
+
+/* 2) ドラッグ&ドロップ */
+const drop = document.getElementById('drop');
+drop.addEventListener('dragover', e=>{ e.preventDefault(); drop.style.background='#f7f7f7'; });
+drop.addEventListener('dragleave', ()=> drop.style.background='');
+drop.addEventListener('drop', async e=>{
+  e.preventDefault(); drop.style.background='';
+  const f = e.dataTransfer.files[0];
+  if(!f) return;
+  const txt = await f.text();
+  const rows = await parseCsvText(txt);
+  if(rows.length){ data=rows; idx=0; renderList(); show(0); localStorage.setItem('lastCsv', txt); }
+});
+
+/* 3) サイト同梱CSVをfetch（例: 同じ階層に words.csv を置く） */
+document.getElementById('btnFetchCsv').onclick = async ()=>{
+  try{
+    const resp = await fetch('./words.csv', {cache:'no-store'});
+    if(!resp.ok) throw new Error(resp.status);
+    const txt = await resp.text();
+    const rows = await parseCsvText(txt);
+    if(rows.length){ data=rows; idx=0; renderList(); show(0); localStorage.setItem('lastCsv', txt); }
+  }catch(e){ alert('words.csv を読めませんでした'); }
+};
+
+/* 起動時に前回CSVを復元（任意） */
+(async ()=>{
+  const txt = localStorage.getItem('lastCsv');
+  if(txt){
+    const rows = await parseCsvText(txt);
+    if(rows.length){ data=rows; idx=0; renderList(); show(0); }
+  }
+})();
 
 /* 初期表示 */
 renderList(); show(0);
