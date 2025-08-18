@@ -216,5 +216,85 @@ const pitchVal= document.getElementById('pitchVal')|| (()=>{const s=document.cre
 function updVals(){ rateVal.textContent = Number(rateEl.value).toFixed(2); pitchVal.textContent = ' ' + Number(pitchEl.value).toFixed(2); }
 rateEl.addEventListener('input',updVals); pitchEl.addEventListener('input',updVals); updVals();
 </script>
+<script>
+/* ===== 診断UI ===== */
+const logBox = (() => {
+  const d = document.createElement('div');
+  d.id = 'diag'; d.style.cssText = 'white-space:pre-wrap;font:12px/1.4 monospace;background:#f7f7f7;padding:8px;border:1px solid #ddd;margin-top:8px';
+  document.body.appendChild(d);
+  return d;
+})();
+function log(s){ logBox.textContent += s + '\n'; }
+
+/* ===== 状態 ===== */
+let ruVoice=null, jaVoice=null, ttsReady=false;
+
+/* ===== Voices 取得 ===== */
+function pickVoices(){
+  const vs = speechSynthesis.getVoices();
+  log(`voices: ${vs.length}`);
+  ruVoice = vs.find(v=>/ru/i.test(v.lang) || /russian/i.test(v.name)) || null;
+  jaVoice = vs.find(v=>/ja/i.test(v.lang) || /japanese/i.test(v.name)) || null;
+  log(`ruVoice: ${ruVoice? (ruVoice.name+' '+ruVoice.lang) : 'NONE'}`);
+  log(`jaVoice: ${jaVoice? (jaVoice.name+' '+jaVoice.lang) : 'NONE'}`);
+}
+if ('speechSynthesis' in window) {
+  pickVoices();
+  speechSynthesis.onvoiceschanged = () => { log('onvoiceschanged'); pickVoices(); };
+} else {
+  log('speechSynthesis NOT available');
+}
+
+/* ===== 初回クリックで解放（iOS必須） ===== */
+document.addEventListener('click', function unlockOnce(){
+  const u = new SpeechSynthesisUtterance(' ');
+  u.lang = 'ru-RU';
+  speechSynthesis.speak(u);
+  ttsReady = true;
+  log('TTS unlocked by user click');
+  document.removeEventListener('click', unlockOnce);
+},{once:true});
+
+/* ===== 正規化 ===== */
+function norm(t){ return (t||'').toString().replace(/\uFEFF/g,'').normalize('NFC').trim(); }
+
+/* ===== 読み上げ ===== */
+function speak(text, lang, voice) {
+  const s = norm(text);
+  if (!ttsReady) { log('speak blocked: not unlocked'); return; }
+  if (!s) { log('speak blocked: empty'); return; }
+  // iOSでたまに cancel が逆効果。まずは無しで試す。必要なら下の1行を有効化。
+  // speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(s);
+  u.lang = lang;
+  if (voice) u.voice = voice; // なくてもOK。langだけで行ける端末多い。
+  const rateEl = document.getElementById('rate'); const pitchEl = document.getElementById('pitch');
+  u.rate  = rateEl ? parseFloat(rateEl.value)||1.0  : 1.0;
+  u.pitch = pitchEl? parseFloat(pitchEl.value)||1.0 : 1.0;
+  log(`speak: "${s}" lang=${lang} rate=${u.rate} pitch=${u.pitch} voice=${voice?voice.name:'(none)'}`);
+  speechSynthesis.speak(u);
+}
+
+/* ===== 既存UIに接続（IDは既存のまま想定） ===== */
+const btnTest = document.getElementById('btnTest');
+if (btnTest) btnTest.onclick = () => speak('Привет, как дела?', 'ru-RU', ruVoice);
+
+const btnRu = document.getElementById('speakRu');
+if (btnRu) btnRu.onclick = () => speak(document.getElementById('ru').textContent, 'ru-RU', ruVoice);
+
+const btnJp = document.getElementById('speakJp');
+if (btnJp) btnJp.onclick = () => speak(document.getElementById('jp').textContent, 'ja-JP', jaVoice);
+
+/* ===== スライダー表示確認 ===== */
+['rate','pitch'].forEach(id=>{
+  const el = document.getElementById(id);
+  const val = document.getElementById(id+'Val') || (()=>{const s=document.createElement('span');s.id=id+'Val';el?.parentNode?.appendChild(s);return s;})();
+  function upd(){ val.textContent = ' ' + Number(el.value).toFixed(2); }
+  if (el){ el.addEventListener('input', upd); upd(); }
+});
+
+/* ===== テスト: ページ表示時のvoices状況 ===== */
+window.addEventListener('load', ()=> log('page loaded'));
+</script>
 </body>
 </html>
