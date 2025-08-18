@@ -1,0 +1,4 @@
+<button id="testRu">RU test</button>
+<script>
+document.getElementById('testRu').onclick = () => speakRU('Привет, как дела?', 1.0);
+</script>
