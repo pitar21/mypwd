@@ -1,159 +1,58 @@
 <!DOCTYPE html>
 <html lang="ja">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ロシア語単語帳 PWAテスト</title>
-<style>
-  body{font-family:system-ui, -apple-system, Arial; margin:16px;}
-  h1{font-size:18px;margin:0 0 8px}
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
-  #ru{font-size:28px;margin:12px 0}
-  #jp{color:#666;margin:4px 0 12px}
-  button{padding:8px 12px}
-  input[type=range]{width:180px}
-  ul{list-style:none;padding:0}
-  li{padding:6px 8px;border-bottom:1px solid #eee;cursor:pointer}
-  .fav{color:#e39}
-</style>
-<h1>📖 ロシア語単語帳</h1>
+<head>
+  <meta charset="UTF-8">
+  <title>ロシア語単語帳</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    body { font-family: sans-serif; margin:20px; }
+    .card { border:1px solid #ccc; padding:10px; margin:10px 0; border-radius:6px; }
+    .row { margin:8px 0; }
+    #drop { border:1px dashed #aaa; padding:8px; border-radius:6px; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <h1>ロシア語単語帳</h1>
 
-<div class="row">
-  <input type="file" id="csv" accept=".csv">
-  <button id="btnTest">RU test</button>
-  <label>速度 <input id="rate" type="range" min="0.7" max="1.3" step="0.05" value="1.0"><span id="rateVal">1.00</span></label>
-</div>
+  <!-- CSV 操作用 -->
+  <div class="row">
+    <input type="file" id="csv" accept=".csv">
+    <button id="btnFetchCsv">同梱CSVを読む</button>
+    <div id="drop">CSVをここにドロップ</div>
+  </div>
 
-<div id="ru">—</div>
-<div id="jp">—</div>
+  <!-- 単語表示 -->
+  <div class="card">
+    <div id="ru" style="font-size:2em;font-weight:bold;"></div>
+    <div id="jp" style="color:#555;"></div>
+  </div>
 
-<div class="row">
-  <button id="speakRu">🔊 RU</button>
-  <button id="speakJp">🔊 JP</button>
-  <button id="next">次へ</button>
-  <button id="fav">☆お気に入り</button>
-  <button id="togglePool">Favのみ:OFF</button>
-</div>
+  <!-- 操作ボタン -->
+  <div class="row">
+    <button id="prev">◀ 前へ</button>
+    <button id="next">次へ ▶</button>
+    <button id="speak">🔊 読み上げ</button>
+  </div>
 
-<ul id="list"></ul>
+  <!-- スライダー -->
+  <div class="row">
+    <label>速度: <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1"></label>
+    <label>声の高さ: <input type="range" id="pitch" min="0.5" max="2" step="0.1" value="1"></label>
+  </div>
 
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- お気に入り -->
+  <div class="row">
+    <button id="fav">⭐ お気に入り追加</button>
+    <div id="favList"></div>
+  </div>
+
 <script>
-/* ====== 状態 ====== */
-let data = [
-  {ru:'да', jp:'はい'},
-  {ru:'нет', jp:'いいえ'},
-  {ru:'спасибо', jp:'ありがとう'},
-  {ru:'вода', jp:'水'},
-  {ru:'хлеб', jp:'パン'}
-];
+let data = [];   // {ru, jp}
 let idx = 0;
-let ruVoice = null, jaVoice = null;
-let rate = 1.0;
-let favs = new Set(JSON.parse(localStorage.getItem('favs') || '[]'));
-let favOnly = false;
+let favorites = [];
 
-/* ====== ユーティリティ ====== */
-const $ = s => document.querySelector(s);
+/* ---- CSV処理 ---- */
 function norm(t){ return (t||'').toString().replace(/\uFEFF/g,'').normalize('NFC').trim(); }
-function keyOf(o){ return `${o.ru}\t${o.jp}`; }
-function pool(){ return favOnly ? data.filter(o=>favs.has(keyOf(o))) || data : data; }
-function show(i){
-  const p = pool(); if(!p.length){ $('#ru').textContent='データなし'; $('#jp').textContent='csvを読み込んでください'; return; }
-  const item = p[(i%p.length+p.length)%p.length];
-  idx = p.indexOf(item);
-  $('#ru').textContent = item.ru;
-  $('#jp').textContent = item.jp;
-  $('#fav').textContent = favs.has(keyOf(item)) ? '★お気に入り' : '☆お気に入り';
-}
-
-/* ====== Voices 遅延取得対応 ====== */
-function pickVoices(){
-  const voices = speechSynthesis.getVoices();
-  ruVoice = voices.find(v=>/ru/i.test(v.lang)) || voices.find(v=>/ru/i.test(v.name)) || null;
-  jaVoice = voices.find(v=>/ja/i.test(v.lang)) || voices.find(v=>/ja/i.test(v.name)) || null;
-}
-if('speechSynthesis' in window){
-  pickVoices();
-  speechSynthesis.onvoiceschanged = pickVoices;
-}
-
-/* ====== TTS ====== */
-function speak(text, lang, voice){
-  const t = norm(text);
-  if(!t) return;
-  speechSynthesis.cancel(); // iOS詰まり回避
-  const u = new SpeechSynthesisUtterance(t);
-  u.lang = lang;
-  if(voice) u.voice = voice;
-  u.rate = rate; // 0.7–1.3 推奨
-  speechSynthesis.speak(u);
-}
-function speakRU(){ speak($('#ru').textContent, 'ru-RU', ruVoice); }
-function speakJP(){ speak($('#jp').textContent, 'ja-JP', jaVoice); }
-
-/* ====== 初回タップで音声解放（iOS必須） ====== */
-document.addEventListener('click', function unlockOnce(){
-  // 空読み上げで権限を“起こす”
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(' ');
-  u.lang = 'ru-RU'; speechSynthesis.speak(u);
-  document.removeEventListener('click', unlockOnce);
-}, {once:true});
-
-/* ====== スライダー ====== */
-$('#rate').addEventListener('input', e=>{
-  rate = parseFloat(e.target.value);
-  $('#rateVal').textContent = rate.toFixed(2);
-});
-
-/* ====== ボタン ====== */
-$('#btnTest').onclick = ()=> speak('Привет, как дела?', 'ru-RU', ruVoice);
-$('#speakRu').onclick = speakRU;
-$('#speakJp').onclick = speakJP;
-$('#next').onclick = ()=> show(idx+1);
-$('#fav').onclick = ()=>{
-  const item = {ru:$('#ru').textContent, jp:$('#jp').textContent};
-  const k = keyOf(item);
-  if(favs.has(k)) favs.delete(k); else favs.add(k);
-  localStorage.setItem('favs', JSON.stringify([...favs]));
-  $('#fav').textContent = favs.has(k) ? '★お気に入り' : '☆お気に入り';
-};
-$('#togglePool').onclick = ()=>{
-  favOnly = !favOnly;
-  $('#togglePool').textContent = favOnly ? 'Favのみ:ON' : 'Favのみ:OFF';
-  show(0);
-};
-
-/* ====== CSV読込（ヘッダ: ru,jp） ====== */
-$('#csv').addEventListener('change', e=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  Papa.parse(file, {
-    header: true,
-    encoding: 'UTF-8',
-    skipEmptyLines: true,
-    complete: res=>{
-      const rows = res.data.map(r=>({ru:norm(r.ru), jp:norm(r.jp)}))
-                           .filter(r=>r.ru && r.jp);
-      if(rows.length){ data = rows; idx = 0; renderList(); show(0); }
-    }
-  });
-});
-
-/* ====== 一覧（タップで選択→RU読み上げ） ====== */
-function renderList(){
-  const ul = $('#list'); ul.innerHTML='';
-  pool().forEach((o,i)=>{
-    const li = document.createElement('li');
-    li.innerHTML = `<span>${o.ru}</span>　<span style="color:#666">${o.jp}</span> ` +
-      (favs.has(keyOf(o)) ? '<span class="fav">★</span>' : '');
-    li.onclick = ()=>{ idx=i; show(i); speakRU(); };
-    ul.appendChild(li);
-  });
-}
-<!-- 末尾の<script>内に追記 or 置換（PapaParseは読み込み済み想定） -->
-function norm(t){ return (t||'').toString().replace(/\uFEFF/g,'').normalize('NFC').trim(); }
-
 async function parseCsvText(text){
   return new Promise(res=>{
     Papa.parse(text, {header:true, skipEmptyLines:true, complete:r=>res(
@@ -162,47 +61,92 @@ async function parseCsvText(text){
   });
 }
 
-/* 1) input=file */
 document.getElementById('csv').addEventListener('change', async e=>{
   const f=e.target.files[0]; if(!f) return;
   const txt = await f.text();
   const rows = await parseCsvText(txt);
-  if(rows.length){ data=rows; idx=0; renderList(); show(0); localStorage.setItem('lastCsv', txt); }
+  if(rows.length) loadData(rows, txt);
 });
 
-/* 2) ドラッグ&ドロップ */
 const drop = document.getElementById('drop');
 drop.addEventListener('dragover', e=>{ e.preventDefault(); drop.style.background='#f7f7f7'; });
 drop.addEventListener('dragleave', ()=> drop.style.background='');
 drop.addEventListener('drop', async e=>{
   e.preventDefault(); drop.style.background='';
-  const f = e.dataTransfer.files[0];
-  if(!f) return;
+  const f = e.dataTransfer.files[0]; if(!f) return;
   const txt = await f.text();
   const rows = await parseCsvText(txt);
-  if(rows.length){ data=rows; idx=0; renderList(); show(0); localStorage.setItem('lastCsv', txt); }
+  if(rows.length) loadData(rows, txt);
 });
 
-/* 3) サイト同梱CSVをfetch（例: 同じ階層に words.csv を置く） */
 document.getElementById('btnFetchCsv').onclick = async ()=>{
   try{
     const resp = await fetch('./words.csv', {cache:'no-store'});
     if(!resp.ok) throw new Error(resp.status);
     const txt = await resp.text();
     const rows = await parseCsvText(txt);
-    if(rows.length){ data=rows; idx=0; renderList(); show(0); localStorage.setItem('lastCsv', txt); }
+    if(rows.length) loadData(rows, txt);
   }catch(e){ alert('words.csv を読めませんでした'); }
 };
 
-/* 起動時に前回CSVを復元（任意） */
+function loadData(rows, raw){
+  data = rows; idx=0;
+  localStorage.setItem('lastCsv', raw);
+  renderList(); show(0);
+}
+
+/* 起動時に前回CSVを復元 */
 (async ()=>{
   const txt = localStorage.getItem('lastCsv');
   if(txt){
     const rows = await parseCsvText(txt);
-    if(rows.length){ data=rows; idx=0; renderList(); show(0); }
+    if(rows.length) { data=rows; show(0); renderList(); }
   }
 })();
 
-/* 初期表示 */
-renderList(); show(0);
+/* ---- 単語表示 ---- */
+function show(i){
+  if(!data.length) return;
+  idx = (i+data.length)%data.length;
+  document.getElementById('ru').textContent = data[idx].ru;
+  document.getElementById('jp').textContent = data[idx].jp;
+}
+document.getElementById('prev').onclick = ()=>show(idx-1);
+document.getElementById('next').onclick = ()=>show(idx+1);
+
+/* ---- 読み上げ ---- */
+document.getElementById('speak').onclick = ()=>{
+  if(!data.length) return;
+  const u = new SpeechSynthesisUtterance(data[idx].ru);
+  u.lang='ru-RU';
+  u.rate = parseFloat(document.getElementById('rate').value);
+  u.pitch= parseFloat(document.getElementById('pitch').value);
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+};
+
+/* ---- スライダー ダブルタップでリセット ---- */
+function dblReset(el, def){
+  let last=0;
+  el.addEventListener('click',()=>{
+    const now=Date.now();
+    if(now-last<400){ el.value=def; }
+    last=now;
+  });
+}
+dblReset(document.getElementById('rate'), 1);
+dblReset(document.getElementById('pitch'), 1);
+
+/* ---- お気に入り ---- */
+document.getElementById('fav').onclick=()=>{
+  if(!data.length) return;
+  const w = data[idx];
+  if(!favorites.find(x=>x.ru===w.ru)){ favorites.push(w); renderFav(); }
+};
+function renderFav(){
+  const box=document.getElementById('favList');
+  box.innerHTML = favorites.map(w=>`<div>${w.ru} - ${w.jp}</div>`).join('');
+}
+function renderList(){ /* 将来拡張用 */ }
 </script>
+</body>
+</html>
