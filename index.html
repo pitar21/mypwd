@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ロシア語単語帳</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <h1>📖 ロシア語単語帳</h1>
+  <input type="file" id="csvInput">
+  <ul id="wordList"></ul>
+  <label>速度: <input type="range" id="rateSlider" min="0.5" max="2" step="0.1" value="1"></label>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script>
+    let rate = 1;
+    document.getElementById("rateSlider").oninput = e => rate = e.target.value;
+
+    document.getElementById("csvInput").addEventListener("change", e => {
+      Papa.parse(e.target.files[0], {
+        complete: results => {
+          const list = document.getElementById("wordList");
+          list.innerHTML = "";
+          results.data.forEach(row => {
+            const li = document.createElement("li");
+            li.textContent = row[0];
+            li.onclick = () => {
+              let u = new SpeechSynthesisUtterance(row[0]);
+              u.lang = "ru-RU";
+              u.rate = rate;
+              speechSynthesis.speak(u);
+            };
+            list.appendChild(li);
+          });
+        }
+      });
+    });
+  </script>
+</body>
+</html>
