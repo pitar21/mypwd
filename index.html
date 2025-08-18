@@ -147,7 +147,6 @@ function renderFav(){
   box.innerHTML = favorites.map(w=>`<div>${w.ru} - ${w.jp}</div>`).join('');
 }
 function renderList(){ /* 将来拡張用 */ }
-<script>
 // ====== TTS 安定化（iOS対応） ======
 let ruVoice=null, jaVoice=null, ttsReady=false;
 
@@ -216,7 +215,6 @@ const rateVal = document.getElementById('rateVal') || (()=>{const s=document.cre
 const pitchVal= document.getElementById('pitchVal')|| (()=>{const s=document.createElement('span');s.id='pitchVal';pitchEl.parentNode.appendChild(s);return s;})();
 function updVals(){ rateVal.textContent = Number(rateEl.value).toFixed(2); pitchVal.textContent = ' ' + Number(pitchEl.value).toFixed(2); }
 rateEl.addEventListener('input',updVals); pitchEl.addEventListener('input',updVals); updVals();
-</script>
 </script>
 </body>
 </html>
