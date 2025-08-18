@@ -1,39 +1,157 @@
 <!DOCTYPE html>
 <html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>ロシア語単語帳</title>
-  <link rel="manifest" href="manifest.json">
-</head>
-<body>
-  <h1>📖 ロシア語単語帳</h1>
-  <input type="file" id="csvInput">
-  <ul id="wordList"></ul>
-  <label>速度: <input type="range" id="rateSlider" min="0.5" max="2" step="0.1" value="1"></label>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-  <script>
-    let rate = 1;
-    document.getElementById("rateSlider").oninput = e => rate = e.target.value;
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ロシア語単語帳 PWAテスト</title>
+<style>
+  body{font-family:system-ui, -apple-system, Arial; margin:16px;}
+  h1{font-size:18px;margin:0 0 8px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+  #ru{font-size:28px;margin:12px 0}
+  #jp{color:#666;margin:4px 0 12px}
+  button{padding:8px 12px}
+  input[type=range]{width:180px}
+  ul{list-style:none;padding:0}
+  li{padding:6px 8px;border-bottom:1px solid #eee;cursor:pointer}
+  .fav{color:#e39}
+</style>
+<h1>📖 ロシア語単語帳</h1>
 
-    document.getElementById("csvInput").addEventListener("change", e => {
-      Papa.parse(e.target.files[0], {
-        complete: results => {
-          const list = document.getElementById("wordList");
-          list.innerHTML = "";
-          results.data.forEach(row => {
-            const li = document.createElement("li");
-            li.textContent = row[0];
-            li.onclick = () => {
-              let u = new SpeechSynthesisUtterance(row[0]);
-              u.lang = "ru-RU";
-              u.rate = rate;
-              speechSynthesis.speak(u);
-            };
-            list.appendChild(li);
-          });
-        }
-      });
-    });
-  </script>
-</body>
-</html>
+<div class="row">
+  <input type="file" id="csv" accept=".csv">
+  <button id="btnTest">RU test</button>
+  <label>速度 <input id="rate" type="range" min="0.7" max="1.3" step="0.05" value="1.0"><span id="rateVal">1.00</span></label>
+</div>
+
+<div id="ru">—</div>
+<div id="jp">—</div>
+
+<div class="row">
+  <button id="speakRu">🔊 RU</button>
+  <button id="speakJp">🔊 JP</button>
+  <button id="next">次へ</button>
+  <button id="fav">☆お気に入り</button>
+  <button id="togglePool">Favのみ:OFF</button>
+</div>
+
+<ul id="list"></ul>
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script>
+/* ====== 状態 ====== */
+let data = [
+  {ru:'да', jp:'はい'},
+  {ru:'нет', jp:'いいえ'},
+  {ru:'спасибо', jp:'ありがとう'},
+  {ru:'вода', jp:'水'},
+  {ru:'хлеб', jp:'パン'}
+];
+let idx = 0;
+let ruVoice = null, jaVoice = null;
+let rate = 1.0;
+let favs = new Set(JSON.parse(localStorage.getItem('favs') || '[]'));
+let favOnly = false;
+
+/* ====== ユーティリティ ====== */
+const $ = s => document.querySelector(s);
+function norm(t){ return (t||'').toString().replace(/\uFEFF/g,'').normalize('NFC').trim(); }
+function keyOf(o){ return `${o.ru}\t${o.jp}`; }
+function pool(){ return favOnly ? data.filter(o=>favs.has(keyOf(o))) || data : data; }
+function show(i){
+  const p = pool(); if(!p.length){ $('#ru').textContent='データなし'; $('#jp').textContent='csvを読み込んでください'; return; }
+  const item = p[(i%p.length+p.length)%p.length];
+  idx = p.indexOf(item);
+  $('#ru').textContent = item.ru;
+  $('#jp').textContent = item.jp;
+  $('#fav').textContent = favs.has(keyOf(item)) ? '★お気に入り' : '☆お気に入り';
+}
+
+/* ====== Voices 遅延取得対応 ====== */
+function pickVoices(){
+  const voices = speechSynthesis.getVoices();
+  ruVoice = voices.find(v=>/ru/i.test(v.lang)) || voices.find(v=>/ru/i.test(v.name)) || null;
+  jaVoice = voices.find(v=>/ja/i.test(v.lang)) || voices.find(v=>/ja/i.test(v.name)) || null;
+}
+if('speechSynthesis' in window){
+  pickVoices();
+  speechSynthesis.onvoiceschanged = pickVoices;
+}
+
+/* ====== TTS ====== */
+function speak(text, lang, voice){
+  const t = norm(text);
+  if(!t) return;
+  speechSynthesis.cancel(); // iOS詰まり回避
+  const u = new SpeechSynthesisUtterance(t);
+  u.lang = lang;
+  if(voice) u.voice = voice;
+  u.rate = rate; // 0.7–1.3 推奨
+  speechSynthesis.speak(u);
+}
+function speakRU(){ speak($('#ru').textContent, 'ru-RU', ruVoice); }
+function speakJP(){ speak($('#jp').textContent, 'ja-JP', jaVoice); }
+
+/* ====== 初回タップで音声解放（iOS必須） ====== */
+document.addEventListener('click', function unlockOnce(){
+  // 空読み上げで権限を“起こす”
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(' ');
+  u.lang = 'ru-RU'; speechSynthesis.speak(u);
+  document.removeEventListener('click', unlockOnce);
+}, {once:true});
+
+/* ====== スライダー ====== */
+$('#rate').addEventListener('input', e=>{
+  rate = parseFloat(e.target.value);
+  $('#rateVal').textContent = rate.toFixed(2);
+});
+
+/* ====== ボタン ====== */
+$('#btnTest').onclick = ()=> speak('Привет, как дела?', 'ru-RU', ruVoice);
+$('#speakRu').onclick = speakRU;
+$('#speakJp').onclick = speakJP;
+$('#next').onclick = ()=> show(idx+1);
+$('#fav').onclick = ()=>{
+  const item = {ru:$('#ru').textContent, jp:$('#jp').textContent};
+  const k = keyOf(item);
+  if(favs.has(k)) favs.delete(k); else favs.add(k);
+  localStorage.setItem('favs', JSON.stringify([...favs]));
+  $('#fav').textContent = favs.has(k) ? '★お気に入り' : '☆お気に入り';
+};
+$('#togglePool').onclick = ()=>{
+  favOnly = !favOnly;
+  $('#togglePool').textContent = favOnly ? 'Favのみ:ON' : 'Favのみ:OFF';
+  show(0);
+};
+
+/* ====== CSV読込（ヘッダ: ru,jp） ====== */
+$('#csv').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  Papa.parse(file, {
+    header: true,
+    encoding: 'UTF-8',
+    skipEmptyLines: true,
+    complete: res=>{
+      const rows = res.data.map(r=>({ru:norm(r.ru), jp:norm(r.jp)}))
+                           .filter(r=>r.ru && r.jp);
+      if(rows.length){ data = rows; idx = 0; renderList(); show(0); }
+    }
+  });
+});
+
+/* ====== 一覧（タップで選択→RU読み上げ） ====== */
+function renderList(){
+  const ul = $('#list'); ul.innerHTML='';
+  pool().forEach((o,i)=>{
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${o.ru}</span>　<span style="color:#666">${o.jp}</span> ` +
+      (favs.has(keyOf(o)) ? '<span class="fav">★</span>' : '');
+    li.onclick = ()=>{ idx=i; show(i); speakRU(); };
+    ul.appendChild(li);
+  });
+}
+
+/* 初期表示 */
+renderList(); show(0);
+</script>
