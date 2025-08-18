@@ -147,6 +147,76 @@ function renderFav(){
   box.innerHTML = favorites.map(w=>`<div>${w.ru} - ${w.jp}</div>`).join('');
 }
 function renderList(){ /* 将来拡張用 */ }
+<script>
+// ====== TTS 安定化（iOS対応） ======
+let ruVoice=null, jaVoice=null, ttsReady=false;
+
+function pickVoices(){
+  const vs = speechSynthesis.getVoices();
+  ruVoice = vs.find(v=>/ru/i.test(v.lang) || /Russian/i.test(v.name)) || null;
+  jaVoice = vs.find(v=>/ja/i.test(v.lang) || /Japanese/i.test(v.name)) || null;
+}
+if ('speechSynthesis' in window) {
+  pickVoices();
+  speechSynthesis.onvoiceschanged = pickVoices;
+}
+
+// 初回タップで解放（必須）
+document.addEventListener('click', function unlockOnce(){
+  // 無音で起こす
+  const u = new SpeechSynthesisUtterance(' ');
+  u.lang = 'ru-RU';
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+  ttsReady = true;
+  document.removeEventListener('click', unlockOnce);
+},{once:true});
+
+// 正規化
+function norm(t){
+  return (t||'').toString()
+    .replace(/\uFEFF/g,'')
+    .normalize('NFC')
+    .trim();
+}
+
+// ロシア語読み上げ
+function speakRUText(text){
+  const s = norm(text);
+  if (!ttsReady || !s || !/[^\s!?.,:;()「」『』]/.test(s)) return; // 文字なしなら読まない
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(s);
+  u.lang = 'ru-RU';
+  if (ruVoice) u.voice = ruVoice;
+  u.rate = parseFloat(document.getElementById('rate').value || 1);
+  u.pitch= parseFloat(document.getElementById('pitch').value || 1);
+  speechSynthesis.speak(u);
+}
+
+// 日本語読み上げ（任意）
+function speakJPText(text){
+  const s = norm(text);
+  if (!ttsReady || !s) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(s);
+  u.lang = 'ja-JP';
+  if (jaVoice) u.voice = jaVoice;
+  u.rate = 1.0; u.pitch = 1.0;
+  speechSynthesis.speak(u);
+}
+
+// テストボタンと既存ボタンに接続
+document.getElementById('btnTest').onclick = ()=> speakRUText('Привет, как дела?');
+document.getElementById('speakRu').onclick = ()=> speakRUText(document.getElementById('ru').textContent);
+document.getElementById('speakJp').onclick = ()=> speakJPText(document.getElementById('jp').textContent);
+
+// スライダー表示更新（効いてない問題の可視化）
+const rateEl = document.getElementById('rate'), pitchEl = document.getElementById('pitch');
+const rateVal = document.getElementById('rateVal') || (()=>{const s=document.createElement('span');s.id='rateVal';rateEl.parentNode.appendChild(s);return s;})();
+const pitchVal= document.getElementById('pitchVal')|| (()=>{const s=document.createElement('span');s.id='pitchVal';pitchEl.parentNode.appendChild(s);return s;})();
+function updVals(){ rateVal.textContent = Number(rateEl.value).toFixed(2); pitchVal.textContent = ' ' + Number(pitchEl.value).toFixed(2); }
+rateEl.addEventListener('input',updVals); pitchEl.addEventListener('input',updVals); updVals();
+</script>
 </script>
 </body>
 </html>
