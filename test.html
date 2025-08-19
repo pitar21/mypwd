@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ロシア語 単語カード（段階表示）</title>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+  body{font-family:system-ui,-apple-system,Arial;margin:16px}
+  h1{font-size:18px;margin:0 0 8px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+  .card{border:1px solid #ddd;border-radius:8px;padding:12px;margin:8px 0}
+  .ru{font-size:28px;font-weight:700}
+  .muted{color:#888}
+  button{padding:8px 12px}
+  input[type=range]{width:160px}
+  #drop{border:1px dashed #aaa;padding:8px;border-radius:6px}
+  .hidden{visibility:hidden}
+</style>
+</head>
+<body>
+<h1>📖 ロシア語 単語カード（段階表示）</h1>
+
+<!-- CSV操作 -->
+<div class="row">
+  <input type="file" id="csv" accept=".csv" />
+  <button id="btnFetchCsv">同梱CSVを読む</button>
+  <div id="drop">CSVをここにドロップ（ヘッダ: ロシア語,日本語,発音記号,カナ）</div>
+</div>
+
+<!-- モード・音声 -->
+<div class="row">
+  <label><input type="checkbox" id="rand"> ランダム</label>
+  <button id="prev">◀ 前</button>
+  <button id="next">次 ▶</button>
+  <button id="revealNext">段階表示</button>
+  <button id="resetReveal">隠す</button>
+  <span class="muted">｜ RU Voice:</span>
+  <select id="ruVoiceSel"><option>loading…</option></select>
+  <span class="muted">速度</span>
+  <input id="rate" type="range" min="0.7" max="1.3" step="0.05" value="1.0"><span id="rateVal">1.00</span>
+  <span class="muted">ピッチ</span>
+  <input id="pitch" type="range" min="0.5" max="2.0" step="0.05" value="1.00"><span id="pitchVal">1.00</span>
+</div>
+
+<!-- カード -->
+<div class="card" id="card">
+  <div id="ru" class="ru">—</div>
+  <div><span class="muted">意味：</span><span id="jp" class="hidden">—</span></div>
+  <div><span class="muted">IPA：</span><span id="ipa" class="hidden">—</span></div>
+  <div><span class="muted">カナ：</span><span id="kana" class="hidden">—</span></div>
+  <div class="row" style="margin-top:10px">
+    <button id="speakRu">🔊 RU読み上げ</button>
+  </div>
+</div>
+
+<script>
+/* ===== 状態 ===== */
+let rows = [
+  {ru:'армия', jp:'軍', ipa:'[ˈarmʲɪjə]', kana:'アルミヤ'},
+  {ru:'погибнуть', jp:'戦死する', ipa:'[pɐˈɡʲibnutʲ]', kana:'パギーブヌチ'},
+  {ru:'депутат', jp:'議員', ipa:'[dʲɪpʊˈtat]', kana:'ヂェプタート'}
+]; // 予備データ
+let idx = 0;
+let randMode = false;
+let revealStep = 0; // 0:RUのみ, 1:意味, 2:IPA, 3:カナ
+let lastCsvRaw = localStorage.getItem('lastCsv4step') || null;
+
+/* ===== 要素 ===== */
+const $ = s => document.querySelector(s);
+const elRU = $('#ru'), elJP = $('#jp'), elIPA = $('#ipa'), elKana = $('#kana');
+
+/* ===== ユーティリティ ===== */
+const norm = t => (t||'').toString().replace(/\uFEFF/g,'').normalize('NFC').trim();
+const sample = arr => arr[(Math.random()*arr.length)|0];
+function bound(i,len){ return (i%len+len)%len; }
+
+/* ===== 表示 ===== */
+function applyReveal(){
+  elJP.classList.toggle('hidden', revealStep < 1);
+  elIPA.classList.toggle('hidden', revealStep < 2);
+  elKana.classList.toggle('hidden', revealStep < 3);
+}
+function show(i){
+  if(!rows.length){ elRU.textContent='データなし'; return; }
+  idx = randMode ? rows.indexOf(sample(rows)) : bound(i, rows.length);
+  const w = rows[idx];
+  elRU.textContent  = w.ru || '—';
+  elJP.textContent  = w.jp || '—';
+  elIPA.textContent = w.ipa || '—';
+  elKana.textContent= w.kana || '—';
+  revealStep = 0;
+  applyReveal();
+}
+
+/* ===== 段階表示 ===== */
+$('#revealNext').onclick = ()=>{ if(revealStep < 3) revealStep++; applyReveal(); };
+$('#resetReveal').onclick = ()=>{ revealStep = 0; applyReveal(); };
+
+/* ===== ナビ ===== */
+$('#prev').onclick = ()=> show(idx-1);
+$('#next').onclick = ()=> show(idx+1);
+$('#rand').onchange = e => { randMode = e.target.checked; };
+
+/* ===== CSV 読み込み ===== */
+async function parseCsvText(text){
+  return new Promise(res=>{
+    Papa.parse(text, {
+      header:true, skipEmptyLines:true,
+      complete:r=>res(
+        r.data.map(x=>({
+          ru:  norm(x['ロシア語']),
+          jp:  norm(x['日本語']),
+          ipa: norm(x['発音記号']),
+          kana:norm(x['カナ'])
+        })).filter(x=>x.ru && (x.jp||x.ipa||x.kana))
+      )
+    });
+  });
+}
+$('#csv').addEventListener('change', async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const txt=await f.text(); const arr=await parseCsvText(txt);
+  if(arr.length){ rows=arr; idx=0; localStorage.setItem('lastCsv4step', txt); show(0); }
+});
+const drop = $('#drop');
+drop.addEventListener('dragover', e=>{e.preventDefault(); drop.style.background='#f7f7f7';});
+drop.addEventListener('dragleave', ()=> drop.style.background='';);
+drop.addEventListener('drop', async e=>{
+  e.preventDefault(); drop.style.background='';
+  const f=e.dataTransfer.files[0]; if(!f) return;
+  const txt=await f.text(); const arr=await parseCsvText(txt);
+  if(arr.length){ rows=arr; idx=0; localStorage.setItem('lastCsv4step', txt); show(0); }
+});
+$('#btnFetchCsv').onclick = async ()=>{
+  try{
+    const resp=await fetch('./words.csv',{cache:'no-store'});
+    if(!resp.ok) throw new Error();
+    const txt=await resp.text(); const arr=await parseCsvText(txt);
+    if(arr.length){ rows=arr; idx=0; localStorage.setItem('lastCsv4step', txt); show(0); }
+  }catch{ alert('words.csv を読めませんでした'); }
+};
+// 前回復元
+(async()=>{
+  if(lastCsvRaw){
+    const arr=await parseCsvText(lastCsvRaw);
+    if(arr.length){ rows=arr; idx=0; show(0); return; }
+  }
+  show(0);
+})();
+
+/* ===== TTS（Yuri優先） ===== */
+let ruVoice = null, voicesCache = [];
+function populateRuVoices(){
+  voicesCache = speechSynthesis.getVoices();
+  const ruCandidates = voicesCache.filter(v=>/ru/i.test(v.lang)||/russian/i.test(v.name));
+  const sel = $('#ruVoiceSel'); sel.innerHTML='';
+  ruCandidates.forEach(v=>{
+    const o=document.createElement('option'); o.value=v.name; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o);
+  });
+  const y = ruCandidates.find(v=>/yuri/i.test(v.name));
+  sel.value = y ? y.name : (ruCandidates[0]?.name||'');
+  ruVoice = voicesCache.find(v=>v.name===sel.value)||null;
+}
+if('speechSynthesis' in window){
+  populateRuVoices();
+  speechSynthesis.onvoiceschanged = populateRuVoices;
+}
+$('#ruVoiceSel').onchange = e => { ruVoice = voicesCache.find(v=>v.name===e.target.value)||null; };
+
+/* ===== TTS 解放・発声 ===== */
+let ttsReady=false;
+document.addEventListener('click', function unlockOnce(){
+  const u=new SpeechSynthesisUtterance(' '); u.lang='ru-RU'; speechSynthesis.speak(u);
+  ttsReady=true; document.removeEventListener('click', unlockOnce);
+},{once:true});
+
+function speakRU(){
+  if(!ttsReady) return;
+  const text = norm(elRU.textContent); if(!text) return;
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang='ru-RU'; if(ruVoice) u.voice=ruVoice;
+  u.rate=parseFloat($('#rate').value)||1.0;
+  u.pitch=parseFloat($('#pitch').value)||1.0;
+  speechSynthesis.speak(u);
+}
+$('#speakRu').onclick = speakRU;
+
+/* ===== スライダー表示 ===== */
+function bindSlider(id,valId){
+  const el=$(id), out=$(valId);
+  const upd=()=> out.textContent = Number(el.value).toFixed(2);
+  el.addEventListener('input', upd); upd();
+  // ダブルタップで既定値
+  let last=0; el.addEventListener('click',()=>{const now=Date.now(); if(now-last<400){ el.value=id==='#rate'?1.0:1.0; upd(); } last=now;});
+}
+bindSlider('#rate','#rateVal');
+bindSlider('#pitch','#pitchVal');
+</script>
+</body>
+</html>
